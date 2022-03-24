@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Puzzle Game</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.8/dist/vue.js"></script>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div class="upload">
+      <input type="file" accept="image/*" @change="changeFile" ref="file" class="upload-input">  
+    </div>
+    <div class="prompt" @mouseenter="showPrompt" @mouseleave="hidePrompt">
+      <img :src="imgUrl" class="prompt-upload-image" v-show="showPromptImage">
+    </div>
+    <div>
+      <img src="./image/rect.png" class="select-button" 
+        v-show="showSelectButton" 
+        @click="showSelectItem = !showSelectItem"
+      >
+      <ul v-show="showSelectItem">
+        <li v-for="(item, index) in options" 
+          class="select-li"
+          data-star="0"
+          ref="star"
+          @click="chooseDifficulty(index)"
+        >
+        </li>
+      </ul>
+    </div>
+    <img :src="imgUrl" ref="image" :class="[success ? 'finish-upload-image' : 'init-upload-image']" v-show="!showDebris">
+    <div class="container">
+      <div class="debris"
+        v-for="(item, index) in num"
+        :key="index"
+        ref="debris"
+        v-show="showDebris"
+        :style="{backgroundImage: 'url(' + imgUrl + ')'}" 
+        @mousedown="move"
+      >
+      </div>
+    </div>
+  </div>
+  <script>
+    var vm = new Vue({
+      el: '#app',
+      data: {
+        imgUrl: '',
+        options: [4, 9, 16, 25, 36, 49, 64, 81],
+        showSelectButton: false,
+        showSelectItem: false,
+        showDebris: false,
+        num: 0,
+        imgWidth: 0,
+        imgHeight: 0,
+        browserW: 0,
+        browserH: 0,
+        maxError: 5,   // 碎片之间的最大间隔值
+        success: false,
+        showPromptImage: false
+      },
+      mounted() {
+        // 获取浏览器窗口的宽高
+        this.browserW = document.documentElement.clientWidth;
+        this.browserH = document.documentElement.clientHeight;
+      },
+      methods: {
+        // 上传图片
+        changeFile() {
+          let reader = new FileReader();
+          let file = this.$refs.file;
+          let image = this.$refs.image;
+          this.showDebris = false;
+          this.num = 0;
+          reader.readAsDataURL(file.files[0]);
+          let _this = this;
+          reader.onload = function() {
+            // 重新开始后把所有星星熄灭
+            _this.lightStar(-1);
+            _this.showSelectButton = true;
+            _this.success = false;
+            _this.imgUrl = this.result;
+            image.src = this.result;
+            // 最大图片宽度设置为浏览器宽度的50%
+            let max_width = parseInt(_this.browserW * 0.5);
+            image.style.maxWidth = max_width + 'px';
+            // 需要图片加载完成后才能获取到宽高
+            setTimeout(() => {
+              // 获取上传的图片的宽高
+              _this.imgWidth = image.naturalWidth;
+              _this.imgHeight = image.naturalHeight;
+              // 若图片过大则进行压缩后再显示
+              if(_this.imgWidth > max_width) {
+                _this.imgHeight = parseInt(max_width * _this.imgHeight / _this.imgWidth);
+                _this.imgWidth = max_width;
+              }
+            }, 0)
+          }
+        },
+        // 确定图片碎片的属性并显示
+        chooseDifficulty(val) {
+          if(this.imgUrl === '') {
+            return;
+          }
+          this.num = Number(this.options[val]);
+          this.lightStar(val);
+          this.showDebris = true;
+          // $refs不是响应式的，需要在$nextTick等DOM更新后才能获取到
+          this.$nextTick(()=>{
+            // 计算每个碎片的宽高
+            let debrisWidth = this.imgWidth / (Math.sqrt(this.num));
+            let debrisHeight = this.imgHeight / (Math.sqrt(this.num));
+            let arr = this.$refs.debris; 
+            let index = 0;
+            for(let i=0, len=Math.sqrt(this.num); i<len; i++) {
+              for(let j=0; j<len; j++) {
+                // 给每一个碎片设置宽高和背景图的位置
+                arr[index].style.width = debrisWidth + 'px';
+                arr[index].style.height = debrisHeight + 'px';
+                arr[index].style.backgroundPosition = `${-debrisWidth * j}px ${-debrisHeight * i}px`;
+                // 若图片经过了压缩则使用压缩后的图片大小，否则得到的碎片显示的区域有误
+                arr[index].style.backgroundSize = `${this.imgWidth}px ${this.imgHeight}px`;
+                // 给每一个碎片随机分配位置
+                let randomX = Math.random() * (this.browserW - debrisWidth + 1);
+                let randomY = Math.random() * (this.browserH - debrisHeight + 1);
+                arr[index].style.left = randomX + 'px';
+                arr[index].style.top = randomY + 'px';
+                index++;
+              }
+            }
+          })
+        },
+       // 拖拽
+        move(e) {
+          e = e || window.event;
+          let target = e.targe || e.srcElement;
+          let startX = e.clientX;
+          let startY = e.clientY;
+          let px = target.offsetLeft;
+          let py = target.offsetTop;
+          document.onmousemove = function(e) {
+            e = e || window.event;
+            let x = e.clientX - startX + px;
+            let y = e.clientY - startY + py;
+            target.style.left = `${x}px`;
+            target.style.top = `${y}px`;
+          };
+          document.onmouseup = () => {
+            document.onmousemove = null;
+            document.onmouseup = null;
+            this.judge();
+          };
+        },
+        // 每次拖拽完成都判断拼图是否成功
+        judge() {
+          let index = 0;
+          let res = this.num;
+          for(let i=0, len=Math.sqrt(this.num); i<len; i++) {
+            for(let j=0; j<len; j++) {
+              // 如果有一个不满足则直接结束判断
+              let temp = this.judgePosition(i, j, index);
+              if(!temp)  return;
+              index++;
+            }
+          }
+          if(this.success) {
+            this.showDebris = false;
+            let image = this.$refs.image;
+            let arr = this.$refs.debris;
+            image.style.left = arr[0].getBoundingClientRect().left + 'px';
+            image.style.top = arr[0].getBoundingClientRect().top + 'px';
+            setTimeout(() => {
+              alert("You're successful!🎉🎉🎉" + "\n" + "Use other photos to try again?" + "\n" + "Or choose more photo debris to increase the difficulty.");
+            }, 0)
+          }
+        },
+        // 判断碎片和上下左右四个碎片的间隔是否不大于最大间隔
+        judgePosition(i, j, index) {
+          let arr = this.$refs.debris;
+          let len = Math.sqrt(this.num);
+          let curDomRect = arr[index].getBoundingClientRect();
+          let dis;
+          // 判断和左边碎片的间隔
+          if(j - 1 >= 0) {
+            dis = Math.abs(curDomRect.left - arr[index-1].getBoundingClientRect().right);
+            if(dis > this.maxError)  return false;
+          }
+          // 判断和右边碎片的间隔
+          if(j + 1 < len) {
+            dis = Math.abs(curDomRect.right - arr[index+1].getBoundingClientRect().left);
+            if(dis > this.maxError)  return false;
+          }
+          // 判断和上边碎片的间隔
+          if(i - 1 >= 0) {
+            dis = Math.abs(curDomRect.top - arr[index-len].getBoundingClientRect().bottom);
+            if(dis > this.maxError)  return false;
+          }
+          // 判断和下边碎片的间隔
+          if(i + 1 < len) {
+            dis = Math.abs(curDomRect.bottom - arr[index+len].getBoundingClientRect().top);
+            if(dis > this.maxError)  return false;
+          }
+          this.success = true;
+          return true;
+        },
+        // 显示提示图片
+        showPrompt() {
+          if(this.showDebris) {
+            this.showPromptImage = true;
+          }
+        },
+        hidePrompt() {  
+          this.showPromptImage = false;
+        },
+        // 点亮星星
+        lightStar(index) {
+          let arr = this.$refs.star;
+          for(let i=0, len=this.options.length; i<len; i++) {
+            arr[i].dataset.star = i <= index ? '1' : '0';
+          }
+        }
+      }
+    })
+  </script>
+</body>
+</html>
